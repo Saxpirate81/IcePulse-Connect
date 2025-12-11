@@ -803,43 +803,44 @@ export default function GameVideoPlayer({
       try {
         // Handle both promise and direct return values
         const currentTimePromise = playerRef.current.getCurrentTime()
-          if (currentTimePromise && typeof currentTimePromise.then === 'function') {
-            // Promise-based API
-            currentTimePromise.then((currentTime: number) => {
-              if (typeof currentTime === 'number') {
-                // Seek backwards based on rate (higher rate = faster backwards)
-                const seekAmount = rate === 2 ? 0.1 : 0.05 // 2x = faster backwards
-                const newTime = Math.max(0, currentTime - seekAmount)
-                if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
-                  playerRef.current.seekTo(newTime, true)
-                }
+        if (currentTimePromise && typeof currentTimePromise.then === 'function') {
+          // Promise-based API
+          currentTimePromise.then((currentTime: number) => {
+            if (typeof currentTime === 'number') {
+              // Seek backwards based on rate (higher rate = faster backwards)
+              const seekAmount = rate === 2 ? 0.1 : 0.05 // 2x = faster backwards
+              const newTime = Math.max(0, currentTime - seekAmount)
+              if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+                playerRef.current.seekTo(newTime, true)
               }
-            }).catch(() => {
-              // Fallback if promise fails
-              try {
-                const currentTime = playerRef.current?.getCurrentTime()
+            }
+          }).catch(() => {
+            // Fallback if promise fails
+            try {
+              if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
+                const currentTime = playerRef.current.getCurrentTime()
                 if (typeof currentTime === 'number') {
                   const seekAmount = rate === 2 ? 0.1 : 0.05
                   const newTime = Math.max(0, currentTime - seekAmount)
-                  if (playerRef.current) {
+                  if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
                     playerRef.current.seekTo(newTime, true)
                   }
                 }
-              } catch (e) {
-                // Ignore errors
               }
-            })
-          } else if (typeof currentTimePromise === 'number') {
-            // Direct return value
-            const seekAmount = rate === 2 ? 0.1 : 0.05
-            const newTime = Math.max(0, currentTimePromise - seekAmount)
-            if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
-              playerRef.current.seekTo(newTime, true)
+            } catch (e) {
+              // Ignore errors
             }
+          })
+        } else if (typeof currentTimePromise === 'number') {
+          // Direct return value
+          const seekAmount = rate === 2 ? 0.1 : 0.05
+          const newTime = Math.max(0, currentTimePromise - seekAmount)
+          if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+            playerRef.current.seekTo(newTime, true)
           }
-        } catch (e) {
-          // Ignore errors
         }
+      } catch (e) {
+        // Ignore errors
       }
     }, 50) // Update every 50ms for smooth backwards playback
   }
