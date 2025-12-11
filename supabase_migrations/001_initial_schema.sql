@@ -57,6 +57,7 @@ CREATE TABLE games (
   game_date DATE,
   start_time TIME,
   location TEXT,
+  youtube_video_id TEXT,
   status TEXT DEFAULT 'scheduled' CHECK (status IN ('scheduled', 'in_progress', 'completed', 'cancelled')),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()

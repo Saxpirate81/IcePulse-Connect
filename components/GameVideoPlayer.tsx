@@ -31,8 +31,10 @@ export default function GameVideoPlayer({
   const [panX, setPanX] = useState(0) // Pan offset X
   const [panY, setPanY] = useState(0) // Pan offset Y
   const [playbackRate, setPlaybackRate] = useState(1) // Current playback rate
+  const [screenshotOverlay, setScreenshotOverlay] = useState<string | null>(null) // Screenshot data URL
   const videoContainerRef = useRef<HTMLDivElement>(null)
   const iframeRef = useRef<HTMLIFrameElement>(null)
+  const screenshotCanvasRef = useRef<HTMLCanvasElement | null>(null)
   const lastTouchDistance = useRef<number | null>(null)
   const isPinching = useRef(false)
   const isDragging = useRef(false)
@@ -69,11 +71,115 @@ export default function GameVideoPlayer({
 
   const cleanVideoId = extractVideoId(videoId)
 
+  // Function to capture screenshot of the video when paused
+  const captureScreenshot = async (iframeId: string) => {
+    try {
+      const iframe = document.getElementById(iframeId) as HTMLIFrameElement
+      if (!iframe || !videoContainerRef.current || !playerRef.current) return
+
+      // Get the container dimensions
+      const container = videoContainerRef.current
+      const rect = container.getBoundingClientRect()
+      
+      // Create a canvas to capture
+      const canvas = document.createElement('canvas')
+      canvas.width = rect.width
+      canvas.height = rect.height
+      const ctx = canvas.getContext('2d')
+      
+      if (!ctx) return
+
+      // Try to get current time for more accurate thumbnail
+      let currentTime = 0
+      try {
+        const time = await playerRef.current.getCurrentTime()
+        currentTime = typeof time === 'number' ? time : 0
+      } catch (e) {
+        // If getCurrentTime fails, use 0
+        currentTime = 0
+      }
+
+      // Use YouTube thumbnail API - maxresdefault gives highest quality
+      const thumbnailUrl = `https://img.youtube.com/vi/${cleanVideoId}/maxresdefault.jpg`
+      
+      // Load thumbnail and draw to canvas
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      
+      img.onload = () => {
+        try {
+          // Draw the thumbnail scaled to fit the canvas
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.95)
+          setScreenshotOverlay(dataUrl)
+        } catch (e) {
+          console.error('Error drawing thumbnail:', e)
+          // Fallback: create a simple placeholder
+          createPlaceholderScreenshot(canvas, ctx)
+        }
+      }
+      
+      img.onerror = () => {
+        // If thumbnail fails, create placeholder
+        createPlaceholderScreenshot(canvas, ctx)
+      }
+      
+      img.src = thumbnailUrl
+    } catch (error) {
+      console.error('Failed to capture screenshot:', error)
+      setScreenshotOverlay(null)
+    }
+  }
+
+  // Create a placeholder screenshot (black screen with play icon)
+  const createPlaceholderScreenshot = (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) => {
+    try {
+      // Fill with black background
+      ctx.fillStyle = '#000000'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      
+      // Draw a subtle play icon in the center
+      const centerX = canvas.width / 2
+      const centerY = canvas.height / 2
+      const radius = Math.min(canvas.width, canvas.height) * 0.08
+      
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'
+      ctx.beginPath()
+      ctx.arc(centerX, centerY, radius, 0, 2 * Math.PI)
+      ctx.fill()
+      
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.8)'
+      ctx.beginPath()
+      ctx.moveTo(centerX - radius * 0.4, centerY - radius * 0.6)
+      ctx.lineTo(centerX - radius * 0.4, centerY + radius * 0.6)
+      ctx.lineTo(centerX + radius * 0.4, centerY)
+      ctx.closePath()
+      ctx.fill()
+      
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.9)
+      setScreenshotOverlay(dataUrl)
+    } catch (error) {
+      console.error('Placeholder creation failed:', error)
+      setScreenshotOverlay(null)
+    }
+  }
+
+  // Hide screenshot overlay when any control is used
+  const hideScreenshotOverlay = () => {
+    setScreenshotOverlay(null)
+  }
+
   // YouTube IFrame API URL with enablejsapi=1 for play/pause control
+  // Added parameters to suppress overlays and related videos
+  // Note: YouTube doesn't provide a parameter to completely disable the "more videos" overlay
+  // The overlay is controlled by YouTube and appears when video is paused/ended
   const embedUrl = React.useMemo(() => {
     if (!cleanVideoId) return ''
     const origin = typeof window !== 'undefined' ? window.location.origin : ''
-    return `https://www.youtube.com/embed/${cleanVideoId}?autoplay=0&rel=0&modestbranding=1&enablejsapi=1&origin=${origin}&iv_load_policy=3&cc_load_policy=0&playsinline=1&disablekb=1`
+    // Parameters: rel=0 (only show videos from same channel), modestbranding=1 (minimal branding)
+    // iv_load_policy=3 (disable annotations), cc_load_policy=0 (no captions by default)
+    // disablekb=1 (disable keyboard controls), fs=0 (disable fullscreen button)
+    return `https://www.youtube.com/embed/${cleanVideoId}?autoplay=0&rel=0&modestbranding=1&enablejsapi=1&origin=${origin}&iv_load_policy=3&cc_load_policy=0&playsinline=1&disablekb=1&controls=1&fs=0`
   }, [cleanVideoId])
 
   // YouTube Player instance
@@ -130,13 +236,44 @@ export default function GameVideoPlayer({
 
         const ytPlayer = new (window as any).YT.Player(iframeId, {
           events: {
-            onStateChange: (event: any) => {
+            onStateChange: async (event: any) => {
               // 1 = playing, 2 = paused, 0 = ended
+              const wasPlaying = isPlaying
               setIsPlaying(event.data === 1)
+              
+              // Capture screenshot when video is paused or ended
+              if (event.data === 2 || event.data === 0) {
+                // Wait a moment for the pause to complete, then capture screenshot
+                setTimeout(async () => {
+                  try {
+                    await captureScreenshot(iframeId)
+                  } catch (error) {
+                    console.error('Failed to capture screenshot:', error)
+                    // Fallback: clear overlay if capture fails
+                    setScreenshotOverlay(null)
+                  }
+                }, 300) // Small delay to ensure video is fully paused
+              } else if (event.data === 1 && wasPlaying === false) {
+                // Video started playing - hide screenshot overlay
+                setScreenshotOverlay(null)
+              }
             },
             onReady: () => {
               // Player is ready
               console.log('YouTube player ready')
+              
+              // Try to hide overlays immediately
+              try {
+                const iframe = document.getElementById(iframeId) as HTMLIFrameElement
+                if (iframe) {
+                  const wrapper = iframe.closest('.youtube-video-wrapper')
+                  if (wrapper) {
+                    wrapper.classList.add('hide-youtube-overlays')
+                  }
+                }
+              } catch (e) {
+                // Ignore errors
+              }
             },
             onError: (event: any) => {
               console.error('YouTube player error:', event.data)
@@ -197,7 +334,10 @@ export default function GameVideoPlayer({
       // Reset playback speed on unmount
       if (playerRef.current && originalPlaybackRate.current !== 1) {
         try {
-          playerRef.current.setPlaybackRate(originalPlaybackRate.current)
+          // Check if setPlaybackRate method exists
+          if (typeof playerRef.current.setPlaybackRate === 'function') {
+            playerRef.current.setPlaybackRate(originalPlaybackRate.current)
+          }
         } catch (e) {
           // Ignore errors
         }
@@ -453,6 +593,9 @@ export default function GameVideoPlayer({
       return
     }
     
+    // Hide screenshot overlay when video is clicked
+    hideScreenshotOverlay()
+    
     // Don't trigger if we just panned (moved more than 5px)
     if (dragStart.current) {
       const touch = e.nativeEvent instanceof TouchEvent ? e.nativeEvent.changedTouches[0] : null
@@ -519,37 +662,51 @@ export default function GameVideoPlayer({
 
   // Time jump functions
   const handleSeek = (seconds: number) => {
-    if (playerRef.current) {
-      try {
-        // Try using getCurrentTime as a promise (newer API)
-        const currentTimePromise = playerRef.current.getCurrentTime()
-        if (currentTimePromise && typeof currentTimePromise.then === 'function') {
-          currentTimePromise.then((currentTime: number) => {
-            const newTime = Math.max(0, currentTime + seconds)
+    if (!playerRef.current) return
+    
+    // Check if getCurrentTime method exists
+    if (typeof playerRef.current.getCurrentTime !== 'function') {
+      console.warn('getCurrentTime method not available on YouTube player')
+      return
+    }
+    
+    try {
+      // Try using getCurrentTime as a promise (newer API)
+      const currentTimePromise = playerRef.current.getCurrentTime()
+      if (currentTimePromise && typeof currentTimePromise.then === 'function') {
+        currentTimePromise.then((currentTime: number) => {
+          const newTime = Math.max(0, currentTime + seconds)
+          if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
             playerRef.current.seekTo(newTime, true)
-          }).catch(() => {
-            // Fallback if getCurrentTime fails
-            try {
+          }
+        }).catch(() => {
+          // Fallback if getCurrentTime fails
+          try {
+            if (playerRef.current && typeof playerRef.current.getCurrentTime === 'function') {
               const currentTime = playerRef.current.getCurrentTime()
               if (typeof currentTime === 'number') {
                 const newTime = Math.max(0, currentTime + seconds)
-                playerRef.current.seekTo(newTime, true)
+                if (typeof playerRef.current.seekTo === 'function') {
+                  playerRef.current.seekTo(newTime, true)
+                }
               }
-            } catch (e) {
-              console.error('Error seeking video:', e)
             }
-          })
-        } else {
-          // Direct call (older API)
-          const currentTime = playerRef.current.getCurrentTime()
-          if (typeof currentTime === 'number') {
-            const newTime = Math.max(0, currentTime + seconds)
+          } catch (e) {
+            console.error('Error seeking video:', e)
+          }
+        })
+      } else {
+        // Direct call (older API)
+        const currentTime = playerRef.current.getCurrentTime()
+        if (typeof currentTime === 'number') {
+          const newTime = Math.max(0, currentTime + seconds)
+          if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
             playerRef.current.seekTo(newTime, true)
           }
         }
-      } catch (error) {
-        console.error('Error seeking video:', error)
       }
+    } catch (error) {
+      console.error('Error seeking video:', error)
     }
   }
 
@@ -561,11 +718,20 @@ export default function GameVideoPlayer({
     }
     try {
       console.log('Setting playback rate to:', rate)
-      playerRef.current.setPlaybackRate(rate)
-      setPlaybackRate(rate)
-      console.log('Playback rate set successfully')
+      // Check if setPlaybackRate method exists (may not be available in all YouTube API versions)
+      if (typeof playerRef.current.setPlaybackRate === 'function') {
+        playerRef.current.setPlaybackRate(rate)
+        setPlaybackRate(rate)
+        console.log('Playback rate set successfully')
+      } else {
+        console.warn('setPlaybackRate method not available on YouTube player')
+        // Fallback: just update state for UI purposes
+        setPlaybackRate(rate)
+      }
     } catch (error) {
       console.error('Error setting playback rate:', error)
+      // Fallback: just update state for UI purposes
+      setPlaybackRate(rate)
     }
   }
 
@@ -573,16 +739,26 @@ export default function GameVideoPlayer({
   const resetPlaybackSpeed = () => {
     if (playerRef.current && originalPlaybackRate.current) {
       try {
-        playerRef.current.setPlaybackRate(originalPlaybackRate.current)
-        setPlaybackRate(originalPlaybackRate.current)
+        // Check if setPlaybackRate method exists
+        if (typeof playerRef.current.setPlaybackRate === 'function') {
+          playerRef.current.setPlaybackRate(originalPlaybackRate.current)
+          setPlaybackRate(originalPlaybackRate.current)
+        } else {
+          console.warn('setPlaybackRate method not available on YouTube player')
+          // Fallback: just update state for UI purposes
+          setPlaybackRate(originalPlaybackRate.current)
+        }
       } catch (error) {
         console.error('Error resetting playback rate:', error)
+        // Fallback: just update state for UI purposes
+        setPlaybackRate(originalPlaybackRate.current)
       }
     }
   }
 
   // Handle backwards playback (seek continuously)
   const startBackwardsPlayback = (rate: number) => {
+    hideScreenshotOverlay()
     if (speedControlInterval.current) {
       clearInterval(speedControlInterval.current)
     }
@@ -614,12 +790,19 @@ export default function GameVideoPlayer({
       // Ignore errors
     }
     
+    // Check if getCurrentTime method exists before starting interval
+    if (typeof playerRef.current.getCurrentTime !== 'function') {
+      console.warn('getCurrentTime method not available for backwards playback')
+      return
+    }
+    
     // Seek backwards continuously
     speedControlInterval.current = setInterval(() => {
-      if (playerRef.current) {
-        try {
-          // Handle both promise and direct return values
-          const currentTimePromise = playerRef.current.getCurrentTime()
+      if (!playerRef.current) return
+      
+      try {
+        // Handle both promise and direct return values
+        const currentTimePromise = playerRef.current.getCurrentTime()
           if (currentTimePromise && typeof currentTimePromise.then === 'function') {
             // Promise-based API
             currentTimePromise.then((currentTime: number) => {
@@ -627,7 +810,7 @@ export default function GameVideoPlayer({
                 // Seek backwards based on rate (higher rate = faster backwards)
                 const seekAmount = rate === 2 ? 0.1 : 0.05 // 2x = faster backwards
                 const newTime = Math.max(0, currentTime - seekAmount)
-                if (playerRef.current) {
+                if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
                   playerRef.current.seekTo(newTime, true)
                 }
               }
@@ -650,7 +833,9 @@ export default function GameVideoPlayer({
             // Direct return value
             const seekAmount = rate === 2 ? 0.1 : 0.05
             const newTime = Math.max(0, currentTimePromise - seekAmount)
-            playerRef.current.seekTo(newTime, true)
+            if (playerRef.current && typeof playerRef.current.seekTo === 'function') {
+              playerRef.current.seekTo(newTime, true)
+            }
           }
         } catch (e) {
           // Ignore errors
@@ -681,9 +866,12 @@ export default function GameVideoPlayer({
     // Save original rate if not already saved
     if (originalPlaybackRate.current === 1) {
       try {
-        const currentRate = playerRef.current.getPlaybackRate()
-        if (typeof currentRate === 'number') {
-          originalPlaybackRate.current = currentRate
+        // Check if getPlaybackRate method exists
+        if (typeof playerRef.current.getPlaybackRate === 'function') {
+          const currentRate = playerRef.current.getPlaybackRate()
+          if (typeof currentRate === 'number') {
+            originalPlaybackRate.current = currentRate
+          }
         }
       } catch (e) {
         // Ignore errors
@@ -705,6 +893,7 @@ export default function GameVideoPlayer({
 
   // Handle button press (start speed control)
   const handleSpeedControlStart = (rate: number, direction: 'backwards' | 'forwards') => {
+    hideScreenshotOverlay() // Hide overlay when any speed control starts
     console.log('Speed control start:', { rate, direction, playerReady: !!playerRef.current })
     if (direction === 'backwards') {
       startBackwardsPlayback(rate)
@@ -744,10 +933,16 @@ export default function GameVideoPlayer({
   }
 
   // -5 seconds backwards
-  const handleSeekBack5 = () => handleSeek(-5)
+  const handleSeekBack5 = () => {
+    hideScreenshotOverlay()
+    handleSeek(-5)
+  }
   
   // +5 seconds forwards
-  const handleSeekForward5 = () => handleSeek(5)
+  const handleSeekForward5 = () => {
+    hideScreenshotOverlay()
+    handleSeek(5)
+  }
 
   // Format date and time in 12hr format
   const formatGameHeader = () => {
@@ -838,16 +1033,16 @@ export default function GameVideoPlayer({
       )}
 
       {/* Video Header */}
-      <div className="flex items-center justify-between bg-primary/10 px-2 md:px-3 py-2 border-b border-border min-w-0 overflow-hidden">
+      <div className="flex items-center justify-between bg-primary/10 px-2 md:px-3 py-2 border-b border-border min-w-0 overflow-hidden relative" style={{ zIndex: 30, pointerEvents: 'auto' }}>
         <div className="flex items-center gap-1 md:gap-2 flex-1 min-w-0">
           <h3 className="text-[10px] md:text-xs font-semibold text-text truncate flex-shrink" title={formatGameHeader()} style={{ maxWidth: '100%' }}>
             {formatGameHeader()}
           </h3>
           <span className="text-[10px] md:text-xs text-textSecondary flex-shrink-0">({Math.round(zoomLevel * 100)}%)</span>
         </div>
-        <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0">
+        <div className="flex items-center gap-0.5 md:gap-1 flex-shrink-0" style={{ pointerEvents: 'auto', position: 'relative', zIndex: 31 }}>
           {/* Video Playback Controls */}
-          <div className="flex items-center gap-0.5 md:gap-1 border-r border-border pr-1 md:pr-2 mr-0.5 md:mr-1">
+          <div className="flex items-center gap-0.5 md:gap-1 border-r border-border pr-1 md:pr-2 mr-0.5 md:mr-1" style={{ pointerEvents: 'auto' }}>
             {/* -5 Backwards Button */}
             <button
               onClick={handleSeekBack5}
@@ -977,7 +1172,7 @@ export default function GameVideoPlayer({
       {/* Video Container - Responsive with zoom support, ensures video fits and isn't cut off */}
       <div
         ref={videoContainerRef}
-        className="relative w-full bg-black"
+        className="relative w-full bg-black youtube-video-wrapper"
         style={{ 
           paddingBottom: '56.25%', // 16:9 aspect ratio (works for all screen sizes)
           height: 0,
@@ -1049,6 +1244,21 @@ export default function GameVideoPlayer({
               console.error('YouTube iframe error:', e)
             }}
           />
+          
+          {/* Screenshot Overlay - Shows when video is paused to hide YouTube "more videos" overlay */}
+          {typeof window !== 'undefined' && screenshotOverlay && (
+            <div
+              className="absolute inset-0 pointer-events-none"
+              style={{
+                backgroundImage: `url(${screenshotOverlay})`,
+                backgroundSize: 'cover',
+                backgroundPosition: 'center',
+                backgroundRepeat: 'no-repeat',
+                imageRendering: 'high-quality',
+                zIndex: 1, // Lower z-index to ensure it doesn't interfere with controls
+              }}
+            />
+          )}
         </div>
       </div>
     </div>

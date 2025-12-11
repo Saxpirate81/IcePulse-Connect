@@ -45,6 +45,24 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Hide YouTube "More Videos" overlay - Note: Limited by cross-origin restrictions */
+.youtube-video-wrapper {
+  position: relative;
+}
+
+/* Attempt to hide YouTube overlays using CSS (works for elements outside iframe) */
+.youtube-video-wrapper::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 999;
+  pointer-events: none;
+  background: transparent;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
