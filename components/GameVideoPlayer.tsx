@@ -69,30 +69,6 @@ export default function GameVideoPlayer({
 
   const cleanVideoId = extractVideoId(videoId)
 
-  // Debug logging
-  useEffect(() => {
-    console.log('GameVideoPlayer - videoId:', videoId)
-    console.log('GameVideoPlayer - cleanVideoId:', cleanVideoId)
-  }, [videoId, cleanVideoId])
-
-  if (!cleanVideoId) {
-    return (
-      <div className="bg-surface border border-border rounded-xl overflow-hidden shadow-lg p-4">
-        <div className="flex items-center justify-between bg-primary/10 px-3 md:px-4 py-2 border-b border-border mb-4">
-          <h3 className="text-xs md:text-sm font-semibold text-text">Game Video</h3>
-        </div>
-        <div className="text-center py-8">
-          <p className="text-textSecondary text-sm">
-            {videoId ? 'Invalid video ID or URL format' : 'No video ID provided'}
-          </p>
-          {videoId && (
-            <p className="text-textSecondary text-xs mt-2">Video ID: {videoId}</p>
-          )}
-        </div>
-      </div>
-    )
-  }
-
   // YouTube IFrame API URL with enablejsapi=1 for play/pause control
   const embedUrl = React.useMemo(() => {
     if (!cleanVideoId) return ''
@@ -102,6 +78,12 @@ export default function GameVideoPlayer({
 
   // YouTube Player instance
   const playerRef = useRef<any>(null)
+
+  // Debug logging
+  useEffect(() => {
+    console.log('GameVideoPlayer - videoId:', videoId)
+    console.log('GameVideoPlayer - cleanVideoId:', cleanVideoId)
+  }, [videoId, cleanVideoId])
 
   // Load YouTube IFrame API and initialize player
   useEffect(() => {

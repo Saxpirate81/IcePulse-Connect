@@ -258,7 +258,7 @@ export default function OrganizationManagement({ organizations, onAdd, onEdit, o
           <div className="text-center py-8 text-textSecondary">
             <HockeyArena size={48} className="mx-auto mb-2 opacity-50" />
             <p>No organization set up yet</p>
-            <p className="text-xs mt-2">Click "Create Organization" to get started</p>
+            <p className="text-xs mt-2">Click &quot;Create Organization&quot; to get started</p>
           </div>
         ) : (
           // Only show the first organization (there should only be one)

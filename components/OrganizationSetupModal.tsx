@@ -55,7 +55,7 @@ export default function OrganizationSetupModal({ isOpen, onComplete }: Organizat
           <HockeyArena size={32} className="text-primary" />
           <div>
             <h2 className="text-2xl font-bold text-text">Welcome to IcePulse Connect</h2>
-            <p className="text-sm text-textSecondary mt-1">Let's set up your organization</p>
+            <p className="text-sm text-textSecondary mt-1">Let&apos;s set up your organization</p>
           </div>
         </div>
 
