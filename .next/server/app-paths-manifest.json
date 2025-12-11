@@ -1,0 +1,12 @@
+{
+  "/_not-found/page": "app/_not-found/page.js",
+  "/page": "app/page.js",
+  "/icon.svg/route": "app/icon.svg/route.js",
+  "/admin/page": "app/admin/page.js",
+  "/admin/video/page": "app/admin/video/page.js",
+  "/admin/stats/page": "app/admin/stats/page.js",
+  "/admin/profile/page": "app/admin/profile/page.js",
+  "/admin/log/faceoffs/page": "app/admin/log/faceoffs/page.js",
+  "/admin/log/shots/page": "app/admin/log/shots/page.js",
+  "/admin/log/clock/page": "app/admin/log/clock/page.js"
+}
