@@ -11,6 +11,11 @@ npm-debug.*
 *.orig.*
 web-build/
 
+# Next.js
+.next/
+out/
+build/
+
 # macOS
 .DS_Store
 
