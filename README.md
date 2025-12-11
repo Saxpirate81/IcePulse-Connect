@@ -80,3 +80,4 @@ Place your logo image at `public/logo.png`. Update the `hasLogo` flag in `compon
 2. Implement authentication
 3. Add Coach, Parent, and Player views
 4. Wire up real data to all screens
+# Build fix
